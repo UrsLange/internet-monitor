@@ -1,0 +1,26 @@
+# Data (personal measurements)
+data/
+
+# Python
+api/.venv/
+api/.pytest_cache/
+**/__pycache__/
+*.pyc
+
+# Node
+dashboard/node_modules/
+dashboard/dist/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Claude Code local settings
+.claude/settings.local.json
+.claude/launch.json
+
+# Specs / internal planning docs
+specs/

@@ -1,0 +1,49 @@
+[tools]
+node = "24"
+python = "3.14"
+uv = "latest"
+pnpm = "latest"
+jq = "latest"
+
+[tasks.setup]
+description = "Install all project dependencies"
+run = """
+uv tool install speedtest-cli
+mkdir -p data
+cd api && uv sync --extra dev
+cd ../dashboard && pnpm install
+"""
+
+[tasks.migrate]
+description = "Migrate JSONL data to SQLite"
+run = "cd api && uv run monitor-migrate --jsonl ../data/connection-log.jsonl --db ../data/monitor.db"
+
+[tasks.api]
+description = "Start API server"
+run = "cd api && uv run uvicorn monitor_api.app:app --host 127.0.0.1 --port 8085 --reload"
+
+[tasks.dashboard]
+description = "Start dashboard dev server"
+run = "cd dashboard && pnpm dev"
+
+[tasks.dev]
+description = "Start API + dashboard together"
+run = """
+(cd api && uv run uvicorn monitor_api.app:app --host 127.0.0.1 --port 8085 --reload) &
+API_PID=$!
+(cd dashboard && pnpm dev) &
+DASH_PID=$!
+trap "kill $API_PID $DASH_PID 2>/dev/null" EXIT
+wait
+"""
+
+[tasks.stop]
+description = "Stop all services (API, dashboard, ping daemon)"
+run = """
+pkill -f "uvicorn monitor_api" 2>/dev/null && echo "Stopped API server" || echo "API server not running"
+pkill -f "vite.*internet-monitor" 2>/dev/null && echo "Stopped dashboard" || echo "Dashboard not running"
+"""
+
+[tasks.test]
+description = "Run all tests"
+run = "cd api && uv run pytest -v"
