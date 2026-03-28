@@ -63,8 +63,8 @@ sed "s|__HOME__|$HOME|g" com.internet-monitor.ping.plist \
   > ~/Library/LaunchAgents/com.internet-monitor.ping.plist
 launchctl load ~/Library/LaunchAgents/com.internet-monitor.ping.plist
 
-# Set up the speed test cron job (runs every 15 minutes)
-(crontab -l 2>/dev/null; echo "*/15 * * * * cd $HOME/internet-monitor && eval \"\$(/opt/homebrew/bin/mise activate bash)\" && ./monitor.sh >> data/cron.log 2>&1") | crontab -
+# Set up the speed test cron job (every 15 minutes, offset to avoid :00/:30)
+(crontab -l 2>/dev/null; echo "7,22,37,52 * * * * cd $HOME/internet-monitor && eval \"\$(/opt/homebrew/bin/mise activate bash)\" && ./monitor.sh >> data/cron.log 2>&1") | crontab -
 
 # 4. Start the dashboard
 mise run dev
@@ -92,7 +92,7 @@ Runs as a launchd daemon. Every 10 seconds, pings `8.8.8.8` and `1.1.1.1`, compu
 
 ### Speed Test (`monitor.sh`)
 
-Runs via cron every 15 minutes. Uses `speedtest-cli` to measure download/upload speeds and inserts results into SQLite.
+Runs via cron every 15 minutes (at :07, :22, :37, :52 to avoid corporate DNS proxy maintenance at :00/:30). Uses `speedtest-cli` to measure download/upload speeds and inserts results into SQLite. Retries up to 3 times on transient failures.
 
 ### Migrating Existing Data
 

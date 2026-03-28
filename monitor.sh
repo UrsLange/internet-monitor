@@ -35,7 +35,15 @@ server_name=""
 isp=""
 
 if command -v speedtest-cli &>/dev/null; then
-  SPEED_JSON=$(speedtest-cli --json 2>/dev/null) || SPEED_JSON=""
+  # Retry up to 3 times — transient DNS/network failures from security agents
+  # cause ~2s failures at certain clock minutes
+  SPEED_JSON=""
+  for attempt in 1 2 3; do
+    SPEED_JSON=$(speedtest-cli --json 2>&1) && break
+    SPEED_JSON=""
+    echo "$(date): speedtest-cli attempt $attempt failed, retrying in 5s..." >&2
+    sleep 5
+  done
   if [[ -n "$SPEED_JSON" ]]; then
     # speedtest-cli reports bits/s; convert to Mbps
     download_mbps=$(echo "$SPEED_JSON" | jq '(.download / 1000000) | . * 100 | round / 100')
