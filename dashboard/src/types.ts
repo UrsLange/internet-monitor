@@ -9,4 +9,15 @@ export interface LogEntry {
   isp: string | null;
 }
 
-export type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | 'all';
+export type PresetRange = '1h' | '6h' | '24h' | '7d' | '30d' | 'all';
+
+export interface CustomRange {
+  start: string; // ISO-8601
+  end: string;   // ISO-8601
+}
+
+export type TimeRange = PresetRange | CustomRange;
+
+export function isCustomRange(range: TimeRange): range is CustomRange {
+  return typeof range === 'object';
+}

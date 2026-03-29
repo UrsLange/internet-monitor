@@ -47,11 +47,43 @@ def _bucket_for_range(range_key: str) -> int | None:
     return RANGE_BUCKETS.get(range_key)
 
 
-def _where_since(since: str | None) -> tuple[str, list[Any]]:
-    """Build a WHERE clause fragment for timestamp filtering."""
-    if since is None:
-        return "", []
-    return "WHERE timestamp >= ?", [since]
+def _bucket_for_span(span_seconds: float) -> int | None:
+    """Compute adaptive bucket size for an arbitrary time span."""
+    if span_seconds <= 3600:
+        return None
+    if span_seconds <= 21600:
+        return 60
+    if span_seconds <= 86400:
+        return 300
+    if span_seconds <= 604800:
+        return 1800
+    if span_seconds <= 2592000:
+        return 7200
+    return max(1, round(span_seconds / 500))
+
+
+def _resolve_range(
+    range_key: str | None,
+    start: str | None,
+    end: str | None,
+) -> tuple[str | None, str | None, int | None]:
+    """Return (since, until, bucket_seconds) from either preset or custom params."""
+    if start and end:
+        t0 = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        t1 = datetime.fromisoformat(end.replace("Z", "+00:00"))
+        span = (t1 - t0).total_seconds()
+        return start, end, _bucket_for_span(span)
+    key = range_key or "24h"
+    return _since_iso(key), None, _bucket_for_range(key)
+
+
+def _where_clause(since: str | None, until: str | None) -> tuple[str, list[Any]]:
+    """Build a WHERE clause for timestamp filtering (supports open or closed ranges)."""
+    if since and until:
+        return "WHERE timestamp >= ? AND timestamp <= ?", [since, until]
+    if since:
+        return "WHERE timestamp >= ?", [since]
+    return "", []
 
 
 def _row_to_dict(row: aiosqlite.Row) -> dict[str, Any]:
@@ -64,11 +96,14 @@ def _row_to_dict(row: aiosqlite.Row) -> dict[str, Any]:
 
 async def get_timeseries(
     db: aiosqlite.Connection,
-    range_key: str,
+    range_key: str | None = None,
+    *,
+    start: str | None = None,
+    end: str | None = None,
 ) -> tuple[list[dict[str, Any]], int, int | None]:
     """Return (rows, total_count, bucket_seconds)."""
-    since = _since_iso(range_key)
-    where, params = _where_since(since)
+    since, until, bucket_seconds = _resolve_range(range_key, start, end)
+    where, params = _where_clause(since, until)
 
     # Total count in range
     total_row = await db.execute_fetchall(
@@ -76,10 +111,8 @@ async def get_timeseries(
     )
     total_count = total_row[0][0]
 
-    bucket_seconds = _bucket_for_range(range_key)
-
-    # For "all", compute adaptive bucket
-    if range_key == "all" and total_count > 0:
+    # For "all" preset, compute adaptive bucket from actual data span
+    if range_key == "all" and not start and total_count > 500:
         span_row = await db.execute_fetchall(
             "SELECT MIN(timestamp) AS mn, MAX(timestamp) AS mx FROM measurements"
         )
@@ -88,21 +121,19 @@ async def get_timeseries(
             t0 = datetime.fromisoformat(mn.replace("Z", "+00:00"))
             t1 = datetime.fromisoformat(mx.replace("Z", "+00:00"))
             span_seconds = (t1 - t0).total_seconds()
-            if span_seconds > 0 and total_count > 500:
+            if span_seconds > 0:
                 bucket_seconds = max(1, round(span_seconds / 500))
             else:
                 bucket_seconds = None
 
     if bucket_seconds is None:
-        # Raw data
         rows = await db.execute_fetchall(
             f"SELECT * FROM measurements {where} ORDER BY timestamp",
             params,
         )
         data = [_row_to_dict(r) for r in rows]
     else:
-        # Bucketed / downsampled
-        data = await _bucketed_query(db, since, bucket_seconds)
+        data = await _bucketed_query(db, since, until, bucket_seconds)
 
     return data, total_count, bucket_seconds
 
@@ -110,10 +141,11 @@ async def get_timeseries(
 async def _bucketed_query(
     db: aiosqlite.Connection,
     since: str | None,
+    until: str | None,
     bucket_seconds: int,
 ) -> list[dict[str, Any]]:
     """Aggregate measurements into time buckets."""
-    where, params = _where_since(since)
+    where, params = _where_clause(since, until)
     sql = f"""
         SELECT
             MIN(timestamp) AS timestamp,
@@ -145,11 +177,14 @@ _METRICS = ["download_mbps", "upload_mbps", "ping_ms", "jitter_ms", "packet_loss
 
 async def get_stats(
     db: aiosqlite.Connection,
-    range_key: str,
+    range_key: str | None = None,
+    *,
+    start: str | None = None,
+    end: str | None = None,
 ) -> dict[str, Any]:
     """Return stat blocks for all 5 metrics."""
-    since = _since_iso(range_key)
-    where, params = _where_since(since)
+    since, until, _ = _resolve_range(range_key, start, end)
+    where, params = _where_clause(since, until)
 
     # Aggregates in one query
     agg_cols = ", ".join(
@@ -198,16 +233,19 @@ async def get_stats(
 
 async def get_histogram(
     db: aiosqlite.Connection,
-    range_key: str,
-    metric: str,
-    bins: int,
+    range_key: str | None = None,
+    metric: str = "download_mbps",
+    bins: int = 20,
+    *,
+    start: str | None = None,
+    end: str | None = None,
 ) -> list[dict[str, Any]]:
     """Build equal-width histogram bins for *metric*."""
     if metric not in _METRICS:
         return []
 
-    since = _since_iso(range_key)
-    where, params = _where_since(since)
+    since, until, _ = _resolve_range(range_key, start, end)
+    where, params = _where_clause(since, until)
 
     # Add non-null filter
     if where:
@@ -252,15 +290,17 @@ async def get_histogram(
 
 async def get_quality(
     db: aiosqlite.Connection,
-    range_key: str,
+    range_key: str | None = None,
+    *,
+    start: str | None = None,
+    end: str | None = None,
 ) -> list[dict[str, Any]]:
     """Compute quality segments with same bucketing as timeseries."""
-    since = _since_iso(range_key)
-    bucket_seconds = _bucket_for_range(range_key)
+    since, until, bucket_seconds = _resolve_range(range_key, start, end)
 
-    # For "all" range, compute adaptive bucket
-    if range_key == "all":
-        where, params = _where_since(since)
+    # For "all" preset, compute adaptive bucket from actual data span
+    if range_key == "all" and not start:
+        where, params = _where_clause(since, until)
         count_row = await db.execute_fetchall(
             f"SELECT COUNT(*) FROM measurements {where}", params
         )
@@ -278,9 +318,9 @@ async def get_quality(
                     bucket_seconds = max(1, round(span / 500))
 
     if bucket_seconds is not None:
-        rows = await _bucketed_query(db, since, bucket_seconds)
+        rows = await _bucketed_query(db, since, until, bucket_seconds)
     else:
-        where, params = _where_since(since)
+        where, params = _where_clause(since, until)
         raw = await db.execute_fetchall(
             f"SELECT * FROM measurements {where} ORDER BY timestamp", params
         )

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Download, RefreshCw, Radio, FileText } from 'lucide-react';
 import Papa from 'papaparse';
-import type { TimeRange } from './types';
+import { isCustomRange } from './types';
 import { useMonitorData } from './hooks/useMonitorData';
 import TimeRangeSelector from './components/TimeRangeSelector';
 import StatCards from './components/StatCards';
@@ -37,7 +37,10 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `connection-log-${timeRange}-${new Date().toISOString().slice(0, 10)}.csv`;
+    const rangeSuffix = isCustomRange(timeRange)
+      ? `custom-${timeRange.start.slice(0, 10)}`
+      : timeRange;
+    a.download = `connection-log-${rangeSuffix}-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };

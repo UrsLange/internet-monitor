@@ -1,4 +1,5 @@
-import type { LogEntry, TimeRange } from '../types';
+import type { LogEntry, TimeRange, PresetRange } from '../types';
+import { isCustomRange } from '../types';
 
 export function parseJSONL(text: string): LogEntry[] {
   return text
@@ -19,8 +20,17 @@ export function parseJSONL(text: string): LogEntry[] {
 export function filterByTimeRange(entries: LogEntry[], range: TimeRange): LogEntry[] {
   if (range === 'all') return entries;
 
+  if (isCustomRange(range)) {
+    const startMs = new Date(range.start).getTime();
+    const endMs = new Date(range.end).getTime();
+    return entries.filter((e) => {
+      const ms = new Date(e.timestamp).getTime();
+      return ms >= startMs && ms <= endMs;
+    });
+  }
+
   const now = Date.now();
-  const ms: Record<Exclude<TimeRange, 'all'>, number> = {
+  const durations: Record<Exclude<PresetRange, 'all'>, number> = {
     '1h': 3600_000,
     '6h': 21600_000,
     '24h': 86400_000,
@@ -28,7 +38,7 @@ export function filterByTimeRange(entries: LogEntry[], range: TimeRange): LogEnt
     '30d': 2592000_000,
   };
 
-  const cutoff = now - ms[range];
+  const cutoff = now - durations[range];
   return entries.filter((e) => new Date(e.timestamp).getTime() >= cutoff);
 }
 

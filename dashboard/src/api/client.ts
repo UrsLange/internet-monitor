@@ -1,11 +1,11 @@
-import type { TimeRange } from '../types';
+import type { TimeRange, LogEntry } from '../types';
+import { isCustomRange } from '../types';
 import type {
   TimeseriesResponse,
   StatsResponse,
   HistogramResponse,
   QualityResponse,
 } from './types';
-import type { LogEntry } from '../types';
 
 async function fetchJSON<T>(url: string): Promise<T | null> {
   try {
@@ -17,12 +17,19 @@ async function fetchJSON<T>(url: string): Promise<T | null> {
   }
 }
 
+function rangeParams(range: TimeRange): string {
+  if (isCustomRange(range)) {
+    return `start=${encodeURIComponent(range.start)}&end=${encodeURIComponent(range.end)}`;
+  }
+  return `range=${range}`;
+}
+
 export function fetchTimeseries(range: TimeRange): Promise<TimeseriesResponse | null> {
-  return fetchJSON<TimeseriesResponse>(`/api/timeseries?range=${range}`);
+  return fetchJSON<TimeseriesResponse>(`/api/timeseries?${rangeParams(range)}`);
 }
 
 export function fetchStats(range: TimeRange): Promise<StatsResponse | null> {
-  return fetchJSON<StatsResponse>(`/api/stats?range=${range}`);
+  return fetchJSON<StatsResponse>(`/api/stats?${rangeParams(range)}`);
 }
 
 export function fetchHistogram(
@@ -31,12 +38,12 @@ export function fetchHistogram(
   bins = 20,
 ): Promise<HistogramResponse | null> {
   return fetchJSON<HistogramResponse>(
-    `/api/histogram?range=${range}&metric=${metric}&bins=${bins}`,
+    `/api/histogram?${rangeParams(range)}&metric=${metric}&bins=${bins}`,
   );
 }
 
 export function fetchQuality(range: TimeRange): Promise<QualityResponse | null> {
-  return fetchJSON<QualityResponse>(`/api/quality?range=${range}`);
+  return fetchJSON<QualityResponse>(`/api/quality?${rangeParams(range)}`);
 }
 
 export function fetchLatest(): Promise<LogEntry | null> {

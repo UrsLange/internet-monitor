@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TimeRange, LogEntry } from '../types';
+import { isCustomRange } from '../types';
 import type {
   TimeseriesResponse,
   StatsResponse,
@@ -169,9 +170,12 @@ export function useMonitorData(timeRange: TimeRange): MonitorData {
     fetchAll(timeRange);
   }, [timeRange, mode, fetchAll, applyFileData]);
 
-  // Poll /api/latest every 10s in API mode
+  // Poll /api/latest every 10s in API mode (skip for past custom ranges)
   useEffect(() => {
-    if (mode !== 'api') {
+    const isPastCustom = isCustomRange(timeRange) &&
+      new Date(timeRange.end).getTime() < Date.now() - 60_000;
+
+    if (mode !== 'api' || isPastCustom) {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
