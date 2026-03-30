@@ -11,31 +11,71 @@ const presets: { value: PresetRange; label: string }[] = [
   { value: 'all', label: 'All' },
 ];
 
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+
 interface Props {
   value: TimeRange;
   onChange: (range: TimeRange) => void;
 }
 
-function toLocalDatetime(iso: string): string {
-  const d = new Date(iso);
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+function pad(n: number): string {
+  return n.toString().padStart(2, '0');
 }
+
+function fromISO(iso: string): { date: string; hour: number; minute: number } {
+  const d = new Date(iso);
+  return {
+    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    hour: d.getHours(),
+    minute: d.getMinutes(),
+  };
+}
+
+function toISO(date: string, hour: number, minute: number): string {
+  return new Date(`${date}T${pad(hour)}:${pad(minute)}:00`).toISOString();
+}
+
+function toComparable(date: string, hour: number, minute: number): number {
+  return new Date(`${date}T${pad(hour)}:${pad(minute)}:00`).getTime();
+}
+
+const inputClass =
+  'rounded-md border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]';
+
+const selectClass =
+  'appearance-none rounded-md border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)] cursor-pointer';
 
 export default function TimeRangeSelector({ value, onChange }: Props) {
   const [showPanel, setShowPanel] = useState(false);
-  const [customStart, setCustomStart] = useState('');
-  const [customEnd, setCustomEnd] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [startHour, setStartHour] = useState(0);
+  const [startMinute, setStartMinute] = useState(0);
+  const [endDate, setEndDate] = useState('');
+  const [endHour, setEndHour] = useState(23);
+  const [endMinute, setEndMinute] = useState(55);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const isCustom = isCustomRange(value);
-  const isValid = customStart !== '' && customEnd !== '' && customStart < customEnd;
+  const hasStart = startDate !== '';
+  const hasEnd = endDate !== '';
+  const isValid =
+    hasStart &&
+    hasEnd &&
+    toComparable(startDate, startHour, startMinute) <
+      toComparable(endDate, endHour, endMinute);
 
   // Pre-fill from current custom range
   useEffect(() => {
     if (isCustomRange(value)) {
-      setCustomStart(toLocalDatetime(value.start));
-      setCustomEnd(toLocalDatetime(value.end));
+      const s = fromISO(value.start);
+      const e = fromISO(value.end);
+      setStartDate(s.date);
+      setStartHour(s.hour);
+      setStartMinute(s.minute);
+      setEndDate(e.date);
+      setEndHour(e.hour);
+      setEndMinute(e.minute);
     }
   }, [value]);
 
@@ -58,9 +98,10 @@ export default function TimeRangeSelector({ value, onChange }: Props) {
 
   const handleApply = () => {
     if (!isValid) return;
-    const start = new Date(customStart).toISOString();
-    const end = new Date(customEnd).toISOString();
-    onChange({ start, end });
+    onChange({
+      start: toISO(startDate, startHour, startMinute),
+      end: toISO(endDate, endHour, endMinute),
+    });
     setShowPanel(false);
   };
 
@@ -89,41 +130,91 @@ export default function TimeRangeSelector({ value, onChange }: Props) {
       </div>
 
       {showPanel && (
-        <div className="absolute right-0 z-50 mt-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 shadow-lg"
+        <div
+          className="absolute right-0 z-50 mt-2 w-80 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 shadow-lg sm:w-auto"
           style={{ colorScheme: 'dark' }}
         >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-3">
-            <label className="flex flex-col gap-1">
-              <span className="text-[10px] font-medium text-[var(--color-text-secondary)]">From</span>
-              <input
-                type="datetime-local"
-                value={customStart}
-                onChange={(e) => setCustomStart(e.target.value)}
-                className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2.5 py-1.5 text-xs text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-[10px] font-medium text-[var(--color-text-secondary)]">To</span>
-              <input
-                type="datetime-local"
-                value={customEnd}
-                onChange={(e) => setCustomEnd(e.target.value)}
-                className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2.5 py-1.5 text-xs text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
-              />
-            </label>
-            <button
-              onClick={handleApply}
-              disabled={!isValid}
-              className="rounded-md bg-[var(--color-accent)] px-4 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-90 disabled:opacity-40"
-            >
-              Apply
-            </button>
+          <div className="flex flex-col gap-4">
+            {/* From row */}
+            <div>
+              <div className="mb-1.5 text-[10px] font-medium text-[var(--color-text-secondary)]">From</div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className={inputClass}
+                />
+                <select
+                  value={startHour}
+                  onChange={(e) => setStartHour(Number(e.target.value))}
+                  className={selectClass}
+                >
+                  {HOURS.map((h) => (
+                    <option key={h} value={h}>{pad(h)}</option>
+                  ))}
+                </select>
+                <span className="text-xs text-[var(--color-text-secondary)]">:</span>
+                <select
+                  value={startMinute}
+                  onChange={(e) => setStartMinute(Number(e.target.value))}
+                  className={selectClass}
+                >
+                  {MINUTES.map((m) => (
+                    <option key={m} value={m}>{pad(m)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* To row */}
+            <div>
+              <div className="mb-1.5 text-[10px] font-medium text-[var(--color-text-secondary)]">To</div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className={inputClass}
+                />
+                <select
+                  value={endHour}
+                  onChange={(e) => setEndHour(Number(e.target.value))}
+                  className={selectClass}
+                >
+                  {HOURS.map((h) => (
+                    <option key={h} value={h}>{pad(h)}</option>
+                  ))}
+                </select>
+                <span className="text-xs text-[var(--color-text-secondary)]">:</span>
+                <select
+                  value={endMinute}
+                  onChange={(e) => setEndMinute(Number(e.target.value))}
+                  className={selectClass}
+                >
+                  {MINUTES.map((m) => (
+                    <option key={m} value={m}>{pad(m)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between">
+              {hasStart && hasEnd && !isValid ? (
+                <p className="text-[10px] text-[var(--color-bad)]">Start must be before end</p>
+              ) : (
+                <span />
+              )}
+              <button
+                onClick={handleApply}
+                disabled={!isValid}
+                className="rounded-md bg-[var(--color-accent)] px-4 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-90 disabled:opacity-40"
+              >
+                Apply
+              </button>
+            </div>
           </div>
-          {customStart && customEnd && customStart >= customEnd && (
-            <p className="mt-2 text-[10px] text-[var(--color-bad)]">
-              Start must be before end
-            </p>
-          )}
         </div>
       )}
     </div>
